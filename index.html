@@ -91,7 +91,7 @@
        (add www.theplymouthchicago.com to the MX walled garden); if both fail, it's hidden and the text remains. -->
   <div class="brandmark">
     <img src="plymouth-mark.png" alt="The Plymouth Chicago"
-         onerror="if(!this.dataset.f){this.dataset.f=1;this.src='https://www.theplymouthchicago.com/brand/plymouth-mark.png';}else{this.style.display='none';}">
+         onerror="this.style.display='none'">
     <span class="logo-text serif">The Plymouth</span>
   </div>
   <p class="eyebrow">Your Chicago stay starts here</p>
@@ -154,12 +154,26 @@
 
   const params = new URLSearchParams(window.location.search);
 
+  // Send any saved signup to the Google Sheet. Runs once the guest is online,
+  // so script.google.com does NOT need to be in the walled garden.
+  function flushPending() {
+    let raw = null;
+    try { raw = localStorage.getItem("plymouthPending"); } catch (e) {}
+    if (!raw) return;
+    const body = new URLSearchParams(JSON.parse(raw));
+    let sent = false;
+    try { sent = navigator.sendBeacon(SCRIPT_URL, body); } catch (e) {}
+    if (!sent) { try { fetch(SCRIPT_URL, { method: "POST", mode: "no-cors", body: body, keepalive: true }); } catch (e) {} }
+    try { localStorage.removeItem("plymouthPending"); } catch (e) {}
+  }
+
   // Success screen: the MX sends guests back here after granting access
   if (params.get("connected") === "1") {
     document.getElementById("formView").style.display = "none";
     document.getElementById("successView").style.display = "block";
     const next = params.get("next");
     if (next && /^https?:\/\//i.test(next)) document.getElementById("continueLink").href = next;
+    flushPending();
   } else {
     // Parameters the MX appends to the splash URL
     var baseGrantUrl    = params.get("base_grant_url");
@@ -202,11 +216,10 @@
       user_agent: navigator.userAgent.slice(0, 200)
     });
 
-    // Save to the Google Sheet (a beacon keeps sending even as the page moves on), then grant access right away
-    let sent = false;
-    try { sent = navigator.sendBeacon(SCRIPT_URL, body); } catch (e) {}
-    if (!sent) { try { fetch(SCRIPT_URL, { method: "POST", mode: "no-cors", body: body, keepalive: true }); } catch (e) {} }
-    setTimeout(grantAccess, 300);
+    // Hold the signup on the device; it's sent to the Sheet from the "You're ready" screen once online
+    try { localStorage.setItem("plymouthPending", JSON.stringify(Object.fromEntries(body))); } catch (e) {}
+    if (!baseGrantUrl) { flushPending(); }   // preview mode: send now
+    grantAccess();
   });
 </script>
 </body>
